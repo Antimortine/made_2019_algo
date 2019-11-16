@@ -32,6 +32,24 @@ void merge(int* first, int firstLen, int* second, int secondLen, int* result)
 		result[k++] = second[j++];
 }
 
+// Рекурсивная сортировка слиянием
+void merge_sort(int* start, int n)
+{
+	if (n <= 1)
+		return;
+	int mid = n / 2;
+	int* left_start = start;
+	int left_len = mid;
+	int* right_start = start + left_len;
+	int right_len = n - mid;
+	merge_sort(left_start, left_len);
+	merge_sort(right_start, right_len);
+	int* sorted = new int[n];
+	merge(left_start, left_len, right_start, right_len, sorted);
+	std::copy(sorted, sorted + n, start);
+	delete[] sorted;
+}
+
 // Последовательно движется слева направо, сортирует пары соседних подмассивов длины k и сливает их
 void sort(int* values, int n, int k)
 {
@@ -41,10 +59,9 @@ void sort(int* values, int n, int k)
 		int* left_start = values + i * k;
 		int* right_start = left_start + k;
 		if (i == 0)
-			std::sort(left_start, right_start);
+			merge_sort(left_start, k);
 		int right_len = std::min(k, n - (i + 1) * k);
-		int* right_end = right_start + right_len;
-		std::sort(right_start, right_end);
+		merge_sort(right_start, right_len);
 		int* merged = new int[k + right_len];
 		merge(left_start, k, right_start, right_len, merged);
 		for (int j = 0; j < k + right_len; ++j)
