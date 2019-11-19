@@ -26,19 +26,20 @@ class BinaryTree
 public:
 	~BinaryTree();
 
-	void print() const;
+	void traverse_level_order(void (*action)(BinaryTreeNode*));
 
 	void add(int value);
 
 private:
 	BinaryTreeNode* root = nullptr;
-
-	static void delete_subtree(BinaryTreeNode* node);
 };
 
 BinaryTree::~BinaryTree()
 {
-	delete_subtree(root);
+	traverse_level_order([](BinaryTreeNode* node)
+	{
+		delete node;
+	});
 }
 
 // Добавляет новый элемент в бинарное дерево поиска без использования рекурсии
@@ -75,8 +76,8 @@ void BinaryTree::add(int value)
 	}
 }
 
-// Печатает элементы дерева в порядке level-order
-void BinaryTree::print() const
+// Обходит элементы дерева и применяет к ним функцию action в порядке level-order
+void BinaryTree::traverse_level_order(void (*action)(BinaryTreeNode*))
 {
 	if (!root)
 		return;
@@ -84,32 +85,15 @@ void BinaryTree::print() const
 	nodes.push(root);
 	while (!nodes.empty())
 	{
-		BinaryTreeNode* node = nodes.front();
+		auto node = nodes.front();
 		nodes.pop();
-		std::cout << node->value << " ";
-		if (node->left)
-			nodes.push(node->left);
-		if (node->right)
-			nodes.push(node->right);
-	}
-}
-
-// Удаляет элементы поддерева в порядке level-order
-void BinaryTree::delete_subtree(BinaryTreeNode* node)
-{
-	if (!node)
-		return;
-	std::queue<BinaryTreeNode*> nodes;
-	nodes.push(node);
-	while (!nodes.empty())
-	{
-		node = nodes.front();
-		nodes.pop();
-		if (node->left)
-			nodes.push(node->left);
-		if (node->right)
-			nodes.push(node->right);
-		delete node;
+		BinaryTreeNode* left = node->left;
+		BinaryTreeNode* right = node->right;
+		action(node);
+		if (left)
+			nodes.push(left);
+		if (right)
+			nodes.push(right);
 	}
 }
 
@@ -123,6 +107,11 @@ int main()
 
 	BinaryTree tree;
 
+	auto print_node_value = [](BinaryTreeNode* node)
+	{
+		std::cout << node->value << " ";
+	};
+
 	for (int i = 0; i < n; ++i)
 	{
 		int value = 0;
@@ -130,7 +119,7 @@ int main()
 		tree.add(value);
 	}
 
-	tree.print();
+	tree.traverse_level_order(print_node_value);
 
 	std::cout.flush();
 	return 0;
