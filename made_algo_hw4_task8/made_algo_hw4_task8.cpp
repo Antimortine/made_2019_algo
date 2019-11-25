@@ -172,6 +172,7 @@ size_t HashTable::probe(const size_t hash, const size_t i) const
 void HashTable::rehash()
 {
 	const size_t M = table.size();
+	cells_used = 0;
 	std::vector<HashTableEntry*> current_table = table;
 	table = std::vector<HashTableEntry*>(M * 2, nullptr);
 	for (HashTableEntry* entry : current_table)
