@@ -241,6 +241,12 @@ std::unordered_map<byte, std::vector<bool>> HuffmanCompressor::BuildHuffmanCodes
 {
 	std::unordered_map<byte, std::vector<bool>> codes_map;
 	std::vector<bool> code;
+	if (!huffman_tree->left)
+	{
+		code.push_back(true);
+		codes_map[huffman_tree->value] = code;
+		return codes_map;
+	}
 	BuildHuffmanCodes(huffman_tree, codes_map, code);
 	return codes_map;
 }
@@ -323,6 +329,8 @@ void HuffmanCompressor::DecodeMessage(HuffmanTreeNode* huffman_tree, BitsReader&
 			node = node->left;
 		else
 			node = node->right;
+		if (!node) // Если словарь состоит всего из одного байта, в дереве будет единственный узел
+			node = huffman_tree;
 		if (!node->left)
 		{
 			writer.WriteByte(node->value);
@@ -341,17 +349,17 @@ void Decode(IInputStream& compressed, IOutputStream& original)
 	HuffmanCompressor::Decode(compressed, original);
 }
 
-int main()
-{
-	auto input = IInputStream("test_input.bmp");
-	auto compressed_output = IOutputStream("compressed.bmp");
-	Encode(input, compressed_output);
-	compressed_output.Flush();
-
-	auto compressed_input = IInputStream("compressed.bmp");
-	auto decompressed_output = IOutputStream("decompressed.bmp");
-	Decode(compressed_input, decompressed_output);
-	decompressed_output.Flush();
-
-	return 0;
-}
+// int main()
+// {
+// 	auto input = IInputStream("test_input.txt");
+// 	auto compressed_output = IOutputStream("compressed.txt");
+// 	Encode(input, compressed_output);
+// 	compressed_output.Flush();
+//
+// 	auto compressed_input = IInputStream("compressed.txt");
+// 	auto decompressed_output = IOutputStream("decompressed.txt");
+// 	Decode(compressed_input, decompressed_output);
+// 	decompressed_output.Flush();
+//
+// 	return 0;
+// }
