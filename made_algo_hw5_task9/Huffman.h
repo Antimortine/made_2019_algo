@@ -20,7 +20,7 @@ struct IInputStream
 
 struct IOutputStream
 {
-	explicit IOutputStream(const std::string& path) : path(path)
+	explicit IOutputStream(std::string path) : path(std::move(path))
 	{
 	}
 
