@@ -131,7 +131,7 @@ bool BitsReader::ReadByte(byte& value)
 class HuffmanCompressor
 {
 public:
-	static void Encode(IInputStream& original, IOutputStream& compressed);
+	static void Encode(IInputStream& original, IOutputStream& compressed, bool force_coding = false);
 	static void Decode(IInputStream& compressed, IOutputStream& original);
 
 private:
@@ -162,8 +162,10 @@ private:
 	static void DecodeMessage(HuffmanTreeNode* huffman_tree, BitsReader& reader, BitsWriter& writer);
 };
 
-// Кодирует поток байтов original алгоритмом Хаффмана, записывает закодированные дерево Хаффмана и сообщение в поток compressed
-void HuffmanCompressor::Encode(IInputStream& original, IOutputStream& compressed)
+// Кодирует поток байтов original алгоритмом Хаффмана, записывает закодированные дерево Хаффмана и сообщение в поток compressed.
+// Если force_coding==false и сжатое сообщение оказывается длиннее исходного, то записывает в выходной поток оригинальное сообщение
+// со специальным сигнальным байтом в конце
+void HuffmanCompressor::Encode(IInputStream& original, IOutputStream& compressed, bool force_coding)
 {
 	std::vector<byte> original_bytes;
 	byte value;
@@ -182,6 +184,16 @@ void HuffmanCompressor::Encode(IInputStream& original, IOutputStream& compressed
 	EncodeMessage(original_bytes, huffman_codes, writer);
 
 	std::vector<byte> compressed_bytes = writer.GetResult();
+
+	// Если сжатый поток оказался не лучше оригинального, оставим его без изменений, добавив в конец особый байт
+	if (!force_coding && original_bytes.size() + 1 <= compressed_bytes.size())
+	{
+		// BitsWriter в последнем байте хранит значение от 0 до 7 - количество значимых бит в предпоследнем байте
+		// Если мы запишем туда значение >7, то при декодировании можно будет однозначно определить эту ситуацию
+		original_bytes.push_back(static_cast<byte>(8));
+		compressed_bytes = original_bytes;
+	}
+	
 	for (byte val : compressed_bytes)
 	{
 		compressed.Write(val);
@@ -197,6 +209,17 @@ void HuffmanCompressor::Decode(IInputStream& compressed, IOutputStream& original
 	{
 		compressed_bytes.push_back(value);
 	}
+
+	// Если последний байт больше 7, то остальные байты составляют исходное несжатое сообщение 
+	byte last_byte = compressed_bytes.back();
+	if (last_byte > 7)
+	{
+		compressed_bytes.pop_back();
+		for (byte val : compressed_bytes)
+			original.Write(val);
+		return;
+	}
+	
 	BitsReader reader(std::move(compressed_bytes));
 
 	HuffmanTreeNode* huffman_tree = DecodeTree(reader);
@@ -369,17 +392,24 @@ void Decode(IInputStream& compressed, IOutputStream& original)
 	HuffmanCompressor::Decode(compressed, original);
 }
 
-int main()
+void test(const std::string& extension)
 {
-	auto input = FInputStream("test_input.txt");
-	auto compressed_output = FOutputStream("compressed.txt");
+	auto input = FInputStream("data/input." + extension);
+	auto compressed_output = FOutputStream("data/compressed." + extension);
 	Encode(input, compressed_output);
 	compressed_output.Flush();
 
-	auto compressed_input = FInputStream("compressed.txt");
-	auto decompressed_output = FOutputStream("decompressed.txt");
+	auto compressed_input = FInputStream("data/compressed." + extension);
+	auto decompressed_output = FOutputStream("data/decompressed." + extension);
 	Decode(compressed_input, decompressed_output);
 	decompressed_output.Flush();
+}
+
+int main()
+{
+	test("txt");
+	test("bmp");
+	test("jpg");
 
 	return 0;
 }
