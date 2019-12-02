@@ -1,4 +1,4 @@
-#pragma once
+п»ї#pragma once
 
 #include <string>
 #include <fstream>
@@ -7,31 +7,46 @@
 
 typedef unsigned char byte;
 
+// Р’С…РѕРґРЅРѕР№ РїРѕС‚РѕРє
 struct IInputStream
 {
-	explicit IInputStream(const std::string& path);
+	// Р’РѕР·РІСЂР°С‰Р°РµС‚ false, РµСЃР»Рё РїРѕС‚РѕРє Р·Р°РєРѕРЅС‡РёР»СЃСЏ
+	virtual bool Read(byte& value) = 0;
+};
 
-	// Возвращает false, если поток закончился
-	bool Read(byte& value);
+// Р’С‹С…РѕРґРЅРѕР№ РїРѕС‚РѕРє
+struct IOutputStream
+{
+	virtual void Write(byte value) = 0;
+};
 
+class FInputStream : public IInputStream
+{
+public:
+	explicit FInputStream(const std::string& path);
+	bool Read(byte& value) override;
+
+private:
 	std::vector<char> bytes;
 	size_t position = 0;
 };
 
-struct IOutputStream
+class FOutputStream : public IOutputStream
 {
-	explicit IOutputStream(std::string path) : path(std::move(path))
+public:
+	explicit FOutputStream(std::string path) : path(std::move(path))
 	{
 	}
 
-	void Write(byte value);
+	void Write(byte value) override;
 	void Flush();
 
+private:
 	std::vector<char> bytes;
 	std::string path;
 };
 
-inline IInputStream::IInputStream(const std::string& path)
+inline FInputStream::FInputStream(const std::string& path)
 {
 	std::ifstream input(path, std::ios::binary);
 	bytes = std::vector<char>(
@@ -40,7 +55,7 @@ inline IInputStream::IInputStream(const std::string& path)
 	input.close();
 }
 
-inline bool IInputStream::Read(byte& value)
+inline bool FInputStream::Read(byte& value)
 {
 	if (position == bytes.size())
 		return false;
@@ -48,12 +63,12 @@ inline bool IInputStream::Read(byte& value)
 	return true;
 }
 
-inline void IOutputStream::Write(byte value)
+inline void FOutputStream::Write(byte value)
 {
 	bytes.push_back(static_cast<char>(value));
 }
 
-inline void IOutputStream::Flush()
+inline void FOutputStream::Flush()
 {
 	std::ofstream out(path, std::ios::out | std::ios::binary);
 	out.write(bytes.data(), bytes.size());

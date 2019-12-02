@@ -10,6 +10,8 @@
 
 // ========================================= BITWISE INPUT/OUTPUT =========================================
 
+// Класс, реализующий операции побитовой и побайтовой записи. Результат возвращает в виде вектора байт.
+// Последний байт хранит фактическое количество бит в предпоследнем байте. Ноль означает, что байт целиком хранит значимую информацию.
 // Порядок записи бит в байте - от старших к младшим
 class BitsWriter
 {
@@ -25,19 +27,22 @@ private:
 	byte bits_count_ = 0;
 };
 
+// Класс, реализующий операции побитового и побайтового чтения из вектора байт.
+// Предполагается, что последний байт хранит фактическое количество бит в предпоследнем байте (или 0, если байт целиком хранит значимую информацию)
 // Порядок записи бит в байте - от старших к младшим
 class BitsReader
 {
 public:
 	explicit BitsReader(std::vector<byte>&& buffer);
 
-	// Возвращают false, если поток закончился
+	// Возвращает false, если поток закончился
 	bool ReadBit(bool& bit);
+	// Возвращает false, если поток закончился
 	bool ReadByte(byte& value);
 
 private:
 	std::vector<byte> buffer_;
-	size_t current_byte = 0;
+	size_t current_byte = 0; // Индекс текущего байта
 	byte bits_read = 0; // Сколько бит из текущего байта уже считано
 	byte bits_in_last_byte;
 };
@@ -89,8 +94,10 @@ BitsReader::BitsReader(std::vector<byte>&& buffer) : buffer_(std::move(buffer))
 
 bool BitsReader::ReadBit(bool& bit)
 {
+	// current_byte указывает за границы буфера - считывать больше нечего
 	if (current_byte == buffer_.size())
 		return false;
+	// current_byte указывает на последний байт, и уже считаны все его значимые биты
 	if (current_byte == buffer_.size() - 1 && bits_read == bits_in_last_byte)
 		return false;
 	bit = static_cast<bool>(buffer_[current_byte] & (1 << (7 - bits_read++)));
@@ -104,8 +111,10 @@ bool BitsReader::ReadBit(bool& bit)
 
 bool BitsReader::ReadByte(byte& value)
 {
+	// current_byte указывает за границы буфера - считывать больше нечего
 	if (current_byte == buffer_.size())
 		return false;
+	// Если из текущего байта не считан ни один бит, можно считать его целиком
 	if (bits_read == 0)
 		value = buffer_[current_byte++];
 	else
@@ -153,6 +162,7 @@ private:
 	static void DecodeMessage(HuffmanTreeNode* huffman_tree, BitsReader& reader, BitsWriter& writer);
 };
 
+// Кодирует поток байтов original алгоритмом Хаффмана, записывает закодированные дерево Хаффмана и сообщение в поток compressed
 void HuffmanCompressor::Encode(IInputStream& original, IOutputStream& compressed)
 {
 	std::vector<byte> original_bytes;
@@ -178,6 +188,7 @@ void HuffmanCompressor::Encode(IInputStream& original, IOutputStream& compressed
 	}
 }
 
+// Восстанавливает исходное сообщение, закодированное алгоритмом Хаффмана
 void HuffmanCompressor::Decode(IInputStream& compressed, IOutputStream& original)
 {
 	std::vector<byte> compressed_bytes;
@@ -201,6 +212,7 @@ void HuffmanCompressor::Decode(IInputStream& compressed, IOutputStream& original
 	}
 }
 
+// Строит таблицу частот байтов в данном векторе
 std::unordered_map<byte, long> HuffmanCompressor::GetFrequencies(const std::vector<byte>& bytes)
 {
 	std::unordered_map<byte, long> frequencies;
@@ -214,6 +226,7 @@ std::unordered_map<byte, long> HuffmanCompressor::GetFrequencies(const std::vect
 	return frequencies;
 }
 
+// Строит таблицу кодов на основе дерева Хаффмана с использованием очереди с приоритетами
 HuffmanCompressor::HuffmanTreeNode* HuffmanCompressor::BuildHuffmanTree(
 	const std::unordered_map<byte, long>& frequencies)
 {
@@ -237,10 +250,12 @@ HuffmanCompressor::HuffmanTreeNode* HuffmanCompressor::BuildHuffmanTree(
 	return root;
 }
 
+// Строит таблицу кодов на основе дерева Хаффмана
 std::unordered_map<byte, std::vector<bool>> HuffmanCompressor::BuildHuffmanCodes(HuffmanTreeNode* huffman_tree)
 {
 	std::unordered_map<byte, std::vector<bool>> codes_map;
 	std::vector<bool> code;
+	// Если дерево состоит всего из одного узла (в алфавите единственный символ), таблица строится тривиально
 	if (!huffman_tree->left)
 	{
 		code.push_back(true);
@@ -269,6 +284,7 @@ void HuffmanCompressor::BuildHuffmanCodes(HuffmanTreeNode* node, std::unordered_
 	code.pop_back();
 }
 
+// Удаляет дерево обходом в глубину
 void HuffmanCompressor::DeleteTree(HuffmanTreeNode* node)
 {
 	if (node->left)
@@ -278,19 +294,23 @@ void HuffmanCompressor::DeleteTree(HuffmanTreeNode* node)
 	delete node;
 }
 
+// Кодирует структуру дерева Хаффмана прямым обходом в глубину
 void HuffmanCompressor::EncodeTree(HuffmanTreeNode* node, BitsWriter& writer)
 {
+	// Листовой узел кодируется битом "1" и оригинальным байтом из словаря
 	if (!node->left)
 	{
 		writer.WriteBit(true);
 		writer.WriteByte(node->value);
 		return;
 	}
+	// Все остальные узлы кодируются нулевым битом
 	writer.WriteBit(false);
 	EncodeTree(node->left, writer);
 	EncodeTree(node->right, writer);
 }
 
+// Восстанавливает структуру дерева Хаффмана из кода, полученного с помощью EncodeTree
 HuffmanCompressor::HuffmanTreeNode* HuffmanCompressor::DecodeTree(BitsReader& reader)
 {
 	bool is_leaf;
@@ -349,17 +369,17 @@ void Decode(IInputStream& compressed, IOutputStream& original)
 	HuffmanCompressor::Decode(compressed, original);
 }
 
-// int main()
-// {
-// 	auto input = IInputStream("test_input.txt");
-// 	auto compressed_output = IOutputStream("compressed.txt");
-// 	Encode(input, compressed_output);
-// 	compressed_output.Flush();
-//
-// 	auto compressed_input = IInputStream("compressed.txt");
-// 	auto decompressed_output = IOutputStream("decompressed.txt");
-// 	Decode(compressed_input, decompressed_output);
-// 	decompressed_output.Flush();
-//
-// 	return 0;
-// }
+int main()
+{
+	auto input = FInputStream("test_input.txt");
+	auto compressed_output = FOutputStream("compressed.txt");
+	Encode(input, compressed_output);
+	compressed_output.Flush();
+
+	auto compressed_input = FInputStream("compressed.txt");
+	auto decompressed_output = FOutputStream("decompressed.txt");
+	Decode(compressed_input, decompressed_output);
+	decompressed_output.Flush();
+
+	return 0;
+}
