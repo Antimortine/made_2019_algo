@@ -1,4 +1,4 @@
-﻿// Алгоритм сжатия данных на основе BWT + RLE и алгоритма Хаффмана
+﻿// Алгоритм сжатия данных:  BWT + MTF + Huffman
 
 
 #include "Huffman.h"
@@ -6,6 +6,7 @@
 #include <queue>
 #include <iostream>
 #include <algorithm>
+#include <set>
 
 // ========================================= BITWISE INPUT/OUTPUT =========================================
 
@@ -598,6 +599,45 @@ void RLECodec::Decode(std::vector<byte>& encoded_bytes, std::vector<byte>& origi
 	}
 }
 
+// ========================================= MTF =========================================
+
+class MTFCodec
+{
+public:
+	static void Encode(std::vector<byte>& original_bytes, std::vector<byte>& encoded_bytes);
+	static void Decode(std::vector<byte>& encoded_bytes, std::vector<byte>& original_bytes);
+};
+
+void MTFCodec::Encode(std::vector<byte>& original_bytes, std::vector<byte>& encoded_bytes)
+{
+	std::vector<byte> dict;
+	for (int val = 0; val < 256; ++val)
+		dict.push_back(val);
+
+	for (byte value : original_bytes)
+	{
+		byte index = std::distance(dict.begin(), std::find(dict.begin(), dict.end(), value));
+		encoded_bytes.push_back(index);
+		dict.erase(dict.begin() + index);
+		dict.insert(dict.begin(), value);
+	}
+}
+
+void MTFCodec::Decode(std::vector<byte>& encoded_bytes, std::vector<byte>& original_bytes)
+{
+	std::vector<byte> dict;
+	for (int val = 0; val < 256; ++val)
+		dict.push_back(val);
+
+	for (byte index : encoded_bytes)
+	{
+		byte value = dict[index];
+		original_bytes.push_back(value);
+		dict.erase(dict.begin() + index);
+		dict.insert(dict.begin(), value);
+	}
+}
+
 
 void Encode(IInputStream& original, IOutputStream& compressed)
 {
@@ -610,13 +650,22 @@ void Encode(IInputStream& original, IOutputStream& compressed)
 
 	std::vector<byte> encoded_bytes;
 	std::vector<byte> temp = std::vector<byte>(original_bytes);
+
+	//RLECodec::Encode(temp, encoded_bytes);
+	//temp = std::vector<byte>(encoded_bytes);
+	//encoded_bytes.clear();
+
 	BWTCodec::Encode(temp, encoded_bytes);
 	temp = std::vector<byte>(encoded_bytes);
 	encoded_bytes.clear();
 
-	RLECodec::Encode(temp, encoded_bytes);
+	MTFCodec::Encode(temp, encoded_bytes);
 	temp = std::vector<byte>(encoded_bytes);
 	encoded_bytes.clear();
+
+	//RLECodec::Encode(temp, encoded_bytes);
+	//temp = std::vector<byte>(encoded_bytes);
+	//encoded_bytes.clear();
 
 	HuffmanCompressor::Encode(temp, encoded_bytes, true);
 	if (original_bytes.size() + 1 < encoded_bytes.size())
@@ -648,14 +697,22 @@ void Decode(IInputStream& compressed, IOutputStream& original)
 	{
 		std::vector<byte> temp = std::vector<byte>(compressed_bytes);
 		HuffmanCompressor::Decode(temp, original_bytes);
+
+		//temp = std::vector<byte>(original_bytes);
+		//original_bytes.clear();
+		//RLECodec::Decode(temp, original_bytes);
+
 		temp = std::vector<byte>(original_bytes);
 		original_bytes.clear();
+		MTFCodec::Decode(temp, original_bytes);
 
-		RLECodec::Decode(temp, original_bytes);
 		temp = std::vector<byte>(original_bytes);
 		original_bytes.clear();
-
 		BWTCodec::Decode(temp, original_bytes);
+
+		//temp = std::vector<byte>(original_bytes);
+		//original_bytes.clear();
+		//RLECodec::Decode(temp, original_bytes);
 	}
 
 	for (byte val : original_bytes)
