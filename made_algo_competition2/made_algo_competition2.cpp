@@ -719,24 +719,24 @@ void Decode(IInputStream& compressed, IOutputStream& original)
 		original.Write(val);
 }
 
-//void test(const std::string& extension)
-//{
-//	auto input = FInputStream("data/input." + extension);
-//	auto compressed_output = FOutputStream("data/compressed." + extension);
-//	Encode(input, compressed_output);
-//	compressed_output.Flush();
-//
-//	auto compressed_input = FInputStream("data/compressed." + extension);
-//	auto decompressed_output = FOutputStream("data/decompressed." + extension);
-//	Decode(compressed_input, decompressed_output);
-//	decompressed_output.Flush();
-//}
-//
-//int main()
-//{
-//	test("txt");
-//	test("bmp");
-//	test("jpg");
-//
-//	return 0;
-//}
+void test(const std::string& extension)
+{
+	auto input = FInputStream("data/input." + extension);
+	auto compressed_output = FOutputStream("data/compressed." + extension);
+	Encode(input, compressed_output);
+	compressed_output.Flush();
+
+	auto compressed_input = FInputStream("data/compressed." + extension);
+	auto decompressed_output = FOutputStream("data/decompressed." + extension);
+	Decode(compressed_input, decompressed_output);
+	decompressed_output.Flush();
+}
+
+int main()
+{
+	test("txt");
+	test("bmp");
+	test("jpg");
+
+	return 0;
+}
