@@ -17,171 +17,35 @@
 #include <cassert>
 #include <cstdint>
 
-// Строит бор для заданного набора паттернов
-// Позволяет находить все вхождения всех паттернов в строку с помощью алгоритма Ахо-Корасик
-class Trie
+// Часть паттерна между символами "?"
+struct SubPattern
 {
-public:
-	struct Match
-	{
-		explicit Match(size_t start, int16_t pattern_index)
-			: start(start), pattern_index(pattern_index) {};
+	explicit SubPattern(int16_t id, int16_t questions_right)
+		: id(id), questions_right(questions_right) {};
 
-		bool operator==(const Match& other) const
-		{
-			return start == other.start && pattern_index == other.pattern_index;
-		}
-
-		bool operator<(const Match& other) const
-		{
-			return start < other.start ||
-				(start == other.start && pattern_index < other.pattern_index);
-		}
-
-		size_t start; // Индекс строки, начиная с котрого там читается паттерн
-		int16_t pattern_index; // Номер паттерна (в порядке вызова add), который встретился в данной позиции
-	};
-
-	Trie();
-	Trie(const Trie&) = delete;
-	Trie(Trie&&) = delete;
-	Trie& operator=(const Trie&) = delete;
-	Trie& operator=(Trie&&) = delete;
-	~Trie() = default;
-
-	// Добавляет паттерн в бор
-	void add(const std::string_view& pattern);
-
-	// Возвращает структуры Match для всех вхождений всех паттернов строку text
-	std::set<Trie::Match> find_all(const std::string& text);
-
-private:
-	int16_t nodes_count = 1;
-
-	std::vector<int16_t> pattern_lengths; // Длины паттернов (в порядке вызова add)
-	std::vector<int16_t> parents; // Индексы родительских узлов
-	std::vector<char> input_chars; // Для каждого узла хранит символ, по которому в него можно попасть из родительского
-	std::vector<int16_t> suffix_links; // Суффиксные ссылки
-	std::vector<int16_t> terminal_links; // Суффиксные ссылки в ближайшую терминальную вершину
-
-	// Функция перехода
-	// Паре (индекс узла, символ) сопаставляет индекс узла, в который можно попасть либо напрямую, либо по суффиксным ссылкам
-	std::map<std::pair<char, int16_t>, int16_t> transitions;
-
-	// Сопоставляет номерам узлов индексы паттернов (в порядке вызова add), которые там заканчиваются
-	std::map<int16_t, int16_t> terminals;
-
-	int16_t get_suffix_link(int16_t state_index); // Возвращает суффиксную ссылку
-	int16_t get_terminal_suffix_link(int16_t state_index); // Возвращает терминальную суффиксную ссылку
-	int16_t transition(int16_t state_index, char symbol); // Функция переходов автомата из состояния state_index по ребру symbol
-
-	// Функция выхода: добавляет в matches информацию обо всех вхождениях паттернов для вершины nodes[state_index]
-	// и позиции в тексте text_index
-	void out(int16_t state_index, size_t text_index, std::set<Trie::Match>& matches);
+	int16_t id; // Индекс уникального субпаттерна в паттерне
+	int16_t questions_right; // Количество символов "?" справа от субпаттерна в паттерне
 };
 
-Trie::Trie()
+class PatternParser
 {
-	parents.push_back(0);
-	input_chars.push_back(0);
-	suffix_links.push_back(0);
-	terminal_links.push_back(0);
-}
+public:
+	// Разбивает паттерн на подстроки, каждая из которых либо не содержит символов "?", либо состоит только из них
+	static std::vector<std::string_view> split_pattern(const std::string& pattern);
 
-void Trie::add(const std::string_view& pattern)
-{
-	assert(pattern.length() > 0);
-	int current_node_index = 0;
-	for (char symbol : pattern)
-	{
-		// Если такого перехода нет, то создадим его вместе с новой вершиной
-		std::pair<char, int16_t> key = std::make_pair(symbol, current_node_index);
-		if (transitions.count(key) == 0)
-		{
-			transitions[key] = nodes_count;
-			parents.push_back(current_node_index);
-			input_chars.push_back(symbol);
-			suffix_links.push_back(-1);
-			terminal_links.push_back(-1);
-			current_node_index = nodes_count++;
-		}
-		else
-			current_node_index = transitions[key];
-	}
-	assert(terminals.count(current_node_index) == 0); // Паттерны должны быть уникальными
-	terminals[current_node_index] = pattern_lengths.size();
-	pattern_lengths.push_back(pattern.length());
-}
+	// Принимает на вход паттерн, возможно, содержащий символы "?"
+	// Возвращает:
+	// - subpatterns - вектор структур SubPattern, описывающих каждую часть патерна между символами "?"
+	// - unique_substrings - вектор уникальных частей патерна между символами "?" в порядке их первого появления в паттерне
+	// - leading_questions - количество ведущих нулей в паттерне
+	static void parse_pattern(
+		const std::string& pattern,
+		std::vector<SubPattern>& subpatterns,
+		std::vector<std::string_view>& unique_substrings,
+		int16_t& leading_questions);
+};
 
-std::set<Trie::Match> Trie::find_all(const std::string& text)
-{
-	assert(text.length() > 0);
-	assert(pattern_lengths.size() > 0);
-	std::set<Trie::Match> matches;
-	int16_t current_node_index = 0;
-
-	for (int i = 0; i < text.length(); ++i)
-	{
-		char symbol = text[i];
-		current_node_index = transition(current_node_index, symbol);
-		out(current_node_index, i, matches);
-	}
-
-	return matches;
-}
-
-int16_t Trie::get_suffix_link(int16_t state_index)
-{
-	if (suffix_links[state_index] == -1)
-	{
-		if (state_index == 0 || parents[state_index] == 0)
-			suffix_links[state_index] = 0;
-		else
-			suffix_links[state_index] = transition(get_suffix_link(parents[state_index]), input_chars[state_index]);
-	}
-	return suffix_links[state_index];
-}
-
-int16_t Trie::get_terminal_suffix_link(int16_t state_index)
-{
-	if (terminal_links[state_index] == -1)
-	{
-		terminal_links[state_index] = get_suffix_link(state_index);
-		while (terminal_links[state_index] != 0 &&
-			terminals.count(terminal_links[state_index]) == 0)
-			terminal_links[state_index] = get_suffix_link(terminal_links[state_index]);
-	}
-	return terminal_links[state_index];
-}
-
-int16_t Trie::transition(int16_t state_index, char symbol)
-{
-	std::pair<char, int16_t> key = std::make_pair(symbol, state_index);
-	if (transitions.count(key) == 0)
-	{
-		if (state_index == 0)
-			transitions[key] = 0;
-		else
-			transitions[key] = transition(get_suffix_link(state_index), symbol);
-	}
-	return transitions[key];
-}
-
-void Trie::out(int16_t state_index, size_t text_index, std::set<Trie::Match>& matches)
-{
-	if (terminals.count(state_index) == 0)
-		state_index = get_terminal_suffix_link(state_index);
-	while (state_index != 0)
-	{
-		size_t length = pattern_lengths[terminals[state_index]];
-		Match match(text_index - length + 1, terminals[state_index]);
-		matches.emplace(match);
-		state_index = get_terminal_suffix_link(state_index);
-	}
-}
-
-// Разбивает паттерн на подстроки, каждая из которых либо не содержит символов "?", либо состоит только из них
-std::vector<std::string_view> split_pattern(const std::string& pattern)
+std::vector<std::string_view> PatternParser::split_pattern(const std::string& pattern)
 {
 	assert(pattern.length() > 0);
 	std::vector<std::string_view> parts;
@@ -203,23 +67,7 @@ std::vector<std::string_view> split_pattern(const std::string& pattern)
 	return parts;
 }
 
-// Часть паттерна между символами "?"
-struct SubPattern
-{
-	explicit SubPattern(int16_t index, int16_t length, int16_t questions_right)
-		: index(index), length(length), questions_right(questions_right) {};
-
-	int16_t index; // Индекс уникального субпаттерна в паттерне
-	int16_t length; // Количество символов в субпаттерне
-	int16_t questions_right; // Количество символов "?" справа от субпаттерна в паттерне
-};
-
-// Принимает на вход паттерн, возможно, содержащий символы "?"
-// Возвращает:
-// - subpatterns - вектор структур SubPattern, описывающих каждую часть патерна между символами "?"
-// - unique_substrings - вектор уникальных частей патерна между символами "?" в порядке их первого появления в паттерне
-// - leading_questions - количество ведущих нулей в паттерне
-void parse_pattern(
+void PatternParser::parse_pattern(
 	const std::string& pattern,
 	std::vector<SubPattern>& subpatterns,
 	std::vector<std::string_view>& unique_substrings,
@@ -263,115 +111,255 @@ void parse_pattern(
 		int16_t questions_right = 0;
 		if (i < parts.size())
 			questions_right = parts[i].length();
-		SubPattern subpattern(pattern_index, part.length(), questions_right);
+		SubPattern subpattern(pattern_index, questions_right);
 		subpatterns.emplace_back(subpattern);
 		++i; // И переходим к следующему субпаттерну
 	}
 	return;
 }
 
-// Разбивает паттерн на субпаттерны (их описание помещается в subpatterns) и применяет алгоритм Ахо-Корасик
-void find_partial_matches(
-	const std::string& pattern,
-	const std::string& text,
-	std::vector<SubPattern>& subpatterns,
-	std::set<Trie::Match>& matches,
-	int16_t& leading_questions)
+namespace std
 {
+	template <>
+	struct hash<std::pair<char, int16_t>>
+	{
+		size_t operator()(const std::pair<char, int16_t>& key) const
+		{
+			return 37 * static_cast<size_t>(key.first) + static_cast<size_t>(key.second);
+		}
+	};
+
+	template <>
+	struct hash<std::pair<size_t, int16_t>>
+	{
+		size_t operator()(const std::pair<size_t, int16_t>& key) const
+		{
+			return 37 * static_cast<size_t>(key.first) + static_cast<size_t>(key.second);
+		}
+	};
+}
+
+// Позволяет находить все вхождения паттерна (возможно, содержащего символ "?") в строку с помощью алгоритма Ахо-Корасик
+class PatternMatcher
+{
+public:
+	PatternMatcher(const std::string& pattern);
+	PatternMatcher(const PatternMatcher&) = delete;
+	PatternMatcher(PatternMatcher&&) = delete;
+	PatternMatcher& operator=(const PatternMatcher&) = delete;
+	PatternMatcher& operator=(PatternMatcher&&) = delete;
+	~PatternMatcher() = default;
+
+	// Возвращает индексы всех вхождений паттерна в строку text
+	std::vector<size_t> find_all(const std::string& text);
+
+private:
+	int16_t nodes_count = 1;
+	int16_t pattern_length = 0;
+	int16_t leading_questions = 0; // Количество ведущих знаков "?" в паттерне
+	std::vector<SubPattern> subpatterns; // Оригинальный паттерн в виде вектора субпаттернов
+	std::vector<int16_t> subpattern_lengths; // Длины субпаттернов (для каждого уникального субпаттерна)
+	std::vector<std::vector<int16_t>> subpattern_ids_to_indices; // Для каждого уникального субпаттерна хранит его позиции в исходном паттерне
+
+	std::vector<int16_t> parents; // Индексы родительских узлов
+	std::vector<char> input_chars; // Для каждого узла хранит символ, по которому в него можно попасть из родительского
+	std::vector<int16_t> suffix_links; // Суффиксные ссылки
+	std::vector<int16_t> terminal_links; // Суффиксные ссылки в ближайшую терминальную вершину
+
+	// Функция перехода
+	// Паре (индекс узла, символ) сопаставляет индекс узла, в который можно попасть либо напрямую, либо по суффиксным ссылкам
+	std::unordered_map<std::pair<char, int16_t>, int16_t> transitions;
+
+	// Сопоставляет номерам узлов индексы субпаттернов, которые там заканчиваются
+	std::map<int16_t, int16_t> terminals;
+
+	// Если ключ (позиция_в_тексте, индекс_субпаттерна) находится в chain_starts, то это допустимое продолжение
+	// Значение в этом случае хранит позицию вхождения первого субпаттерна
+	// Любое вхождение первого субпаттерна допустимо и здесь не учитывается
+	std::map<std::pair<size_t, int16_t>, size_t> chain_starts;
+
+	void add_subpattern(const std::string_view& subpattern); // Добавляет субпаттерн в бор
+	int16_t get_suffix_link(int16_t state_index); // Возвращает суффиксную ссылку
+	int16_t get_terminal_suffix_link(int16_t state_index); // Возвращает терминальную суффиксную ссылку
+	int16_t transition(int16_t state_index, char symbol); // Функция переходов автомата из состояния state_index по ребру symbol
+
+	// Функция выхода: добавляет в matches индекс вхождения всего паттерна для вершины nodes[state_index]
+	// и позиции в тексте text_index
+	void out(int16_t state_index, size_t text_index, std::vector<size_t>& matches);
+};
+
+PatternMatcher::PatternMatcher(const std::string& pattern)
+{
+	pattern_length = pattern.length();
+
 	std::vector<std::string_view> unique_substrings;
-	parse_pattern(pattern, subpatterns, unique_substrings, leading_questions);
+	PatternParser::parse_pattern(pattern, subpatterns, unique_substrings, leading_questions);
+
+	size_t subpatterns_total_length = 0;
+	for (std::string_view& substr : unique_substrings)
+		subpatterns_total_length += substr.length();
+
+	parents.reserve(subpatterns_total_length);
+	input_chars.reserve(subpatterns_total_length);
+	suffix_links.reserve(subpatterns_total_length);
+	terminal_links.reserve(subpatterns_total_length);
+	transitions.reserve(subpatterns_total_length);
+
+	parents.push_back(0);
+	input_chars.push_back(0);
+	suffix_links.push_back(0);
+	terminal_links.push_back(0);
+
+	for (std::string_view& substr : unique_substrings)
+		add_subpattern(substr);
+
+	subpattern_ids_to_indices = std::vector<std::vector<int16_t>>(unique_substrings.size(), std::vector<int16_t>());
+	for (size_t i = 0; i < subpatterns.size(); ++i)
+		subpattern_ids_to_indices[subpatterns[i].id].push_back(i);
+}
+
+void PatternMatcher::add_subpattern(const std::string_view& subpattern)
+{
+	assert(subpattern.length() > 0);
+	int current_node_index = 0;
+	for (char symbol : subpattern)
+	{
+		// Если такого перехода нет, то создадим его вместе с новой вершиной
+		std::pair<char, int16_t> key = std::make_pair(symbol, current_node_index);
+		if (transitions.count(key) == 0)
+		{
+			transitions[key] = nodes_count;
+			parents.push_back(current_node_index);
+			input_chars.push_back(symbol);
+			suffix_links.push_back(-1);
+			terminal_links.push_back(-1);
+			current_node_index = nodes_count++;
+		}
+		else
+			current_node_index = transitions[key];
+	}
+	assert(terminals.count(current_node_index) == 0); // Паттерны должны быть уникальными
+	terminals[current_node_index] = subpattern_lengths.size();
+	subpattern_lengths.push_back(subpattern.length());
+}
+
+std::vector<size_t> PatternMatcher::find_all(const std::string& text)
+{
+	assert(text.length() > 0);
+	std::vector<size_t> matches;
+
+	if (pattern_length > text.length())
+		return matches;
 
 	// Если паттерн состоит только из знаков "?"
 	if (subpatterns.size() == 0)
-		return;
+	{
+		for (size_t i = 0; i <= text.length() - leading_questions; ++i)
+			matches.push_back(i);
+		return matches;
+	}
 
-	// Создаём автомат Ахо-Корасик
-	Trie trie;
-	for (std::string_view& substr : unique_substrings)
-		trie.add(substr);
+	int16_t trailing_questions = subpatterns.back().questions_right;
+	int16_t current_node_index = 0;
+	for (int i = leading_questions; i < text.length() - trailing_questions; ++i)
+	{
+		char symbol = text[i];
+		current_node_index = transition(current_node_index, symbol);
+		out(current_node_index, i, matches);
+	}
 
-	unique_substrings.clear();
-	std::vector<std::string_view>().swap(unique_substrings);
-
-	// Находим вхождения всех субпаттернов
-	matches = trie.find_all(text);
+	return matches;
 }
 
-// Возвращает индексы всех вхождений паттерна pattern (возможно, содержащего символы "?") в строку text
-std::vector<size_t> find_all(const std::string& pattern, const std::string& text)
+int16_t PatternMatcher::get_suffix_link(int16_t state_index)
 {
-	assert(pattern.length() > 0);
-	assert(text.length() > 0);
-	std::vector<size_t> indices;
-
-	if (pattern.length() > text.length())
-		return indices;
-
-	std::set<Trie::Match> matches;
-	std::vector<SubPattern> parsed_pattern;
-	int16_t leading_questions = 0;
-
-	find_partial_matches(
-		pattern,
-		text,
-		parsed_pattern,
-		matches,
-		leading_questions);
-
-	// Если паттерн состоит только из знаков "?"
-	if (parsed_pattern.size() == 0)
+	if (suffix_links[state_index] == -1)
 	{
-		for (size_t i = 0; i <= text.length() - pattern.length(); ++i)
-			indices.push_back(i);
-		return indices;
+		if (state_index == 0 || parents[state_index] == 0)
+			suffix_links[state_index] = 0;
+		else
+			suffix_links[state_index] = transition(get_suffix_link(parents[state_index]), input_chars[state_index]);
+	}
+	return suffix_links[state_index];
+}
+
+int16_t PatternMatcher::get_terminal_suffix_link(int16_t state_index)
+{
+	if (terminal_links[state_index] == -1)
+	{
+		terminal_links[state_index] = get_suffix_link(state_index);
+		while (terminal_links[state_index] != 0 &&
+			terminals.count(terminal_links[state_index]) == 0)
+			terminal_links[state_index] = get_suffix_link(terminal_links[state_index]);
+	}
+	return terminal_links[state_index];
+}
+
+int16_t PatternMatcher::transition(int16_t state_index, char symbol)
+{
+	std::pair<char, int16_t> key = std::make_pair(symbol, state_index);
+	if (transitions.count(key) == 0)
+	{
+		if (state_index == 0)
+			transitions[key] = 0;
+		else
+			transitions[key] = transition(get_suffix_link(state_index), symbol);
+	}
+	return transitions[key];
+}
+
+void PatternMatcher::out(int16_t state_index, size_t text_index, std::vector<size_t>& matches)
+{
+	// Удаляем устаревшие записи в chain_starts
+	long outdated_index = text_index - pattern_length;
+	if (outdated_index > 0 && outdated_index % 100 == 99)
+	{
+		auto end_iter = chain_starts.upper_bound(std::make_pair(outdated_index, -1));
+		chain_starts.erase(chain_starts.begin(), end_iter);
 	}
 
-	if (matches.size() < parsed_pattern.size())
-		return indices;
-
-	// Теперь пытаемся сопоставить матчи с оригинальным паттерном (должен совпадать порядок + расстояние между ними)
-
-	long skip_text_index = -1;
-
-	for (Trie::Match match : matches)
+	if (terminals.count(state_index) == 0)
+		state_index = get_terminal_suffix_link(state_index);
+	while (state_index != 0)
 	{
-		size_t text_index = match.start;
+		// Идентификатор уникального субпаттерна, вхождение которого нашли
+		int16_t subpattern_id = terminals[state_index];
+		size_t subpattern_length = subpattern_lengths[subpattern_id];
+		size_t subpattern_start = text_index - subpattern_length + 1;
 
-		// Если данная позиция уже анализировалась, то пропускаем её
-		if (text_index == skip_text_index)
-			continue;
-
-		skip_text_index = text_index;
-
-		// Пропустим вхождения, слева от которых меньше символов, чем знаков "?" в начале паттерна
-		if (text_index < leading_questions)
-			continue;
-
-		size_t match_must_start = text_index; // Позиция в тексте, в которой должен начинаться матч
-		size_t matches_count = 0; // Количество совпавших субпаттернов
-		for (SubPattern& subpattern : parsed_pattern)
+		// Позиции этого субпаттерна в оригинальном паттерне
+		std::vector<int16_t>& subpattern_indices = subpattern_ids_to_indices[subpattern_id];
+		for (int16_t subpattern_index : subpattern_indices)
 		{
-			// Если в данной позиции нет матча, соответствующего текущему субпаттерну, то нужно искать совпадение дальше
-			if (matches.find(Trie::Match(match_must_start, subpattern.index)) == matches.end())
-				break;
+			std::pair<size_t, int16_t> current_key = std::make_pair(subpattern_start, subpattern_index);
+			size_t next_subpattern_start = text_index + subpatterns[subpattern_index].questions_right + 1;
+			std::pair<size_t, int16_t> next_key = std::make_pair(next_subpattern_start, subpattern_index + 1);
 
-			// Расстояние между матчами должно совпадать с количеством вопросов между субпаттернами
-			match_must_start += subpattern.length + subpattern.questions_right;
-
-			// Случай, когда справа от конца текущего матча меньше символов, чем знаков "?" следом за ним в паттерне
-			if (match_must_start > text.length())
-				break;
-
-			++matches_count;
+			// Если это первый субпаттерн паттерна, его в любом случае нужно обработать:
+			// сохранить позицию вхождения в текст + добавить информацию о том, что можно искать следующий субпаттерн
+			if (subpattern_index == 0)
+			{
+				// Если это единственный субпаттерн, то найдено вхождение исходного паттерна
+				if (subpatterns.size() == 1)
+				{
+					matches.push_back(subpattern_start - leading_questions);
+					return;
+				}
+				chain_starts.emplace(std::make_pair(next_key, subpattern_start - leading_questions));
+			}
+			// Иначе нужно убедиться, что это вхождение продолжает цепочку
+			else if (chain_starts.count(current_key) != 0)
+			{
+				// Если это последний субпаттерн, то найдено вхождение исходного паттерна
+				if (subpattern_index == subpatterns.size() - 1)
+					matches.push_back(chain_starts[current_key]);
+				else
+					chain_starts.emplace(std::make_pair(next_key, chain_starts[current_key]));
+			}
 		}
-		if (matches_count != parsed_pattern.size())
-			continue;
-
-		// Ура, нашли вхождение всего паттерна
-		indices.emplace_back(text_index - leading_questions);
+		// И продолжаем искать другие совпадения субпаттернов
+		state_index = get_terminal_suffix_link(state_index);
 	}
-
-	return indices;
 }
 
 int main()
@@ -384,10 +372,12 @@ int main()
 
 	std::cin >> pattern >> text;
 
-	//pattern = "dabce?abc?bc";
-	//text = "bcdabceaabcabc";
+	//pattern = "dabce?abc?bc?bc?bc?abc";
+	//text = "bcdabceaabcabcabcabcaabc";
 
-	std::vector<size_t> indices = find_all(pattern, text);
+	PatternMatcher matcher(pattern);
+
+	std::vector<size_t> indices = matcher.find_all(text);
 	for (size_t index : indices)
 		std::cout << index << " ";
 
