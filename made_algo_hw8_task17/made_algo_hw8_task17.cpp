@@ -311,50 +311,58 @@ int16_t PatternMatcher::transition(int16_t state_index, char symbol)
 void PatternMatcher::out(int16_t state_index, size_t text_index, std::vector<size_t>& matches)
 {
 	// Удаляем устаревшие записи в chain_starts
-	long outdated_index = text_index - pattern_length;
-	if (outdated_index > 0 && outdated_index % 100 == 99)
+	if (chain_starts.size() > subpatterns.size() * 2)
 	{
-		auto end_iter = chain_starts.upper_bound(std::make_pair(outdated_index, -1));
+		auto end_iter = chain_starts.upper_bound(std::make_pair(text_index, -1));
 		chain_starts.erase(chain_starts.begin(), end_iter);
 	}
 
-	if (terminals.count(state_index) == 0)
+	if (terminals.find(state_index) == terminals.end())
 		state_index = get_terminal_suffix_link(state_index);
 	while (state_index != 0)
 	{
+		// Если это единственный субпаттерн, то найдено вхождение исходного паттерна
+		if (subpatterns.size() == 1)
+		{
+			size_t subpattern_start = text_index - subpattern_lengths[0] + 1;
+			matches.push_back(subpattern_start - leading_questions);
+			return;
+		}
+
 		// Идентификатор уникального субпаттерна, вхождение которого нашли
 		int16_t subpattern_id = terminals[state_index];
-		size_t subpattern_length = subpattern_lengths[subpattern_id];
-		size_t subpattern_start = text_index - subpattern_length + 1;
 
 		// Позиции этого субпаттерна в оригинальном паттерне
 		std::vector<int16_t>& subpattern_indices = subpattern_ids_to_indices[subpattern_id];
 		for (int16_t subpattern_index : subpattern_indices)
 		{
-			std::pair<size_t, int16_t> current_key = std::make_pair(subpattern_start, subpattern_index);
-			size_t next_subpattern_start = text_index + subpatterns[subpattern_index].questions_right + 1;
-			std::pair<size_t, int16_t> next_key = std::make_pair(next_subpattern_start, subpattern_index + 1);
+			std::pair<size_t, int16_t> current_key = std::make_pair(text_index, subpattern_index);
+
+			// Если это последний субпаттерн, то надо проверить, завершает ли он цепочку
+			if (subpattern_index == subpatterns.size() - 1)
+			{
+				if (chain_starts.find(current_key) != chain_starts.end())
+					matches.push_back(chain_starts[current_key]);
+				continue;
+			}
+
+			SubPattern& current_subpattern = subpatterns[subpattern_index];
+			SubPattern& next_subpattern = subpatterns[subpattern_index + 1];
+			size_t next_subpattern_end = text_index + current_subpattern.questions_right + subpattern_lengths[next_subpattern.id];
+			std::pair<size_t, int16_t> next_key = std::make_pair(next_subpattern_end, subpattern_index + 1);
 
 			// Если это первый субпаттерн паттерна, его в любом случае нужно обработать:
 			// сохранить позицию вхождения в текст + добавить информацию о том, что можно искать следующий субпаттерн
 			if (subpattern_index == 0)
 			{
-				// Если это единственный субпаттерн, то найдено вхождение исходного паттерна
-				if (subpatterns.size() == 1)
-				{
-					matches.push_back(subpattern_start - leading_questions);
-					return;
-				}
+				size_t subpattern_length = subpattern_lengths[subpattern_id];
+				size_t subpattern_start = text_index - subpattern_length + 1;
 				chain_starts.emplace(std::make_pair(next_key, subpattern_start - leading_questions));
 			}
 			// Иначе нужно убедиться, что это вхождение продолжает цепочку
-			else if (chain_starts.count(current_key) != 0)
+			else if (chain_starts.find(current_key) != chain_starts.end())
 			{
-				// Если это последний субпаттерн, то найдено вхождение исходного паттерна
-				if (subpattern_index == subpatterns.size() - 1)
-					matches.push_back(chain_starts[current_key]);
-				else
-					chain_starts.emplace(std::make_pair(next_key, chain_starts[current_key]));
+				chain_starts.emplace(std::make_pair(next_key, chain_starts[current_key]));
 			}
 		}
 		// И продолжаем искать другие совпадения субпаттернов
@@ -372,8 +380,8 @@ int main()
 
 	std::cin >> pattern >> text;
 
-	//pattern = "dabce?abc?bc?bc?bc?abc";
-	//text = "bcdabceaabcabcabcabcaabc";
+	//pattern = "ba?aab?abab";
+	//text = "ababaabaababb";
 
 	PatternMatcher matcher(pattern);
 
