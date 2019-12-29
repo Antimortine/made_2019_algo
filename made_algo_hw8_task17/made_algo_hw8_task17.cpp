@@ -10,8 +10,6 @@
 #include <iostream>
 #include <string>
 #include <string_view>
-#include <unordered_set>
-#include <unordered_map>
 #include <map>
 #include <set>
 #include <vector>
@@ -37,12 +35,12 @@ public:
 	// Принимает на вход паттерн, возможно, содержащий символы "?"
 	// Возвращает:
 	// - subpatterns - вектор структур SubPattern, описывающих каждую часть патерна между символами "?"
-	// - unique_substrings - вектор уникальных частей патерна между символами "?" в порядке их первого появления в паттерне
+	// - unique_substrings - вектор частей патерна между символами "?" в порядке их появления в паттерне
 	// - leading_questions - количество ведущих нулей в паттерне
 	static void parse_pattern(
 		const std::string& pattern,
 		std::vector<SubPattern>& subpatterns,
-		std::vector<std::string_view>& unique_substrings,
+		std::vector<std::string_view>& substrings,
 		size_t& leading_questions);
 };
 
@@ -134,7 +132,10 @@ public:
 		char input_char; // Символ, по которому в данный узел можно попасть из родительского
 		long suffix_link = -1; // Суффиксная ссылка
 		long terminal_link = -1; // Суффиксная ссылка в ближайшую терминальную вершину
-		std::vector<size_t> terminals; // Индексы (в векторе subpatterns) субпаттернов, которые заканчиваются  в данном узле
+		bool terminals_filled = false; // Заполнены ли все терминалы, доступные по терминальным ссылкам
+		// Индексы (в векторе subpatterns) субпаттернов, которые заканчиваются в данном узле или в узлах по терминальным ссылкам
+		// (только для терминальных узлов)
+		std::set<size_t> terminals;
 
 		// Функция перехода
 		// Сопаставляет символу индекс узла, в который можно попасть либо напрямую, либо по суффиксным ссылкам
@@ -157,16 +158,17 @@ private:
 	size_t leading_questions = 0; // Количество ведущих знаков "?" в паттерне
 	size_t match_delta = 0; // Это число нужно вычесть из позиции конца последнего матча, чтобы получить начало вхождения всего паттерна
 	std::vector<SubPattern> subpatterns; // Оригинальный паттерн в виде вектора субпаттернов
-	std::vector<Node> nodes;
+	std::vector<Node> nodes; // Состояния автомата
 
 	// Если по ключу "позиция_в_тексте" находится "индекс_субпаттерна", то это допустимое продолжение
 	// Любое вхождение первого субпаттерна допустимо и здесь не учитывается
-	std::map<size_t, std::set<size_t>> available;
+	std::map<size_t, std::vector<size_t>> available;
 
 	void add_subpattern(const std::string_view& subpattern); // Добавляет субпаттерн в бор
 	size_t get_suffix_link(size_t state_index); // Возвращает суффиксную ссылку
 	size_t get_terminal_suffix_link(size_t state_index); // Возвращает терминальную суффиксную ссылку
 	size_t transition(size_t state_index, char symbol); // Функция переходов автомата из состояния state_index по ребру symbol
+	void fill_terminals(size_t state_index); // Добавляет в узел индесы паттернов, заканчивающихся в терминальных ссылках
 
 	// Функция выхода: добавляет в matches индекс вхождения всего паттерна для вершины nodes[state_index]
 	// и позиции в тексте text_index
@@ -213,7 +215,7 @@ void PatternMatcher::add_subpattern(const std::string_view& subpattern)
 		else
 			current_node_index = current_node.transitions[position];
 	}
-	nodes[current_node_index].terminals.push_back(subpatterns_added++);
+	nodes[current_node_index].terminals.insert(subpatterns_added++);
 }
 
 std::vector<size_t> PatternMatcher::find_all(const std::string& text)
@@ -284,51 +286,67 @@ size_t PatternMatcher::transition(size_t state_index, char symbol)
 	return node.transitions[position];
 }
 
+void PatternMatcher::fill_terminals(size_t state_index)
+{
+	Node& node = nodes[state_index];
+	if (node.terminals_filled || node.terminals.size() == 0)
+		return;
+	node.terminals_filled = true;
+	state_index = get_terminal_suffix_link(state_index);
+	while (state_index != 0)
+	{
+		Node& terminal_node = nodes[state_index];
+		fill_terminals(state_index);
+		node.terminals.insert(terminal_node.terminals.begin(), terminal_node.terminals.end());
+		state_index = get_terminal_suffix_link(state_index);
+	}
+}
+
 void PatternMatcher::out(size_t state_index, size_t text_index, size_t text_length, std::vector<size_t>& matches)
 {
 	if (nodes[state_index].terminals.size() == 0)
 		state_index = get_terminal_suffix_link(state_index);
 
-	// Если это единственный субпаттерн, то найдено вхождение исходного паттерна
-	if (subpatterns_added == 1 && state_index != 0)
+	if (subpatterns_added == 1)
 	{
-		matches.push_back(text_index - match_delta);
+		// Если это единственный субпаттерн, то найдено вхождение исходного паттерна
+		if (state_index != 0)
+			matches.push_back(text_index - match_delta);
 		return;
 	}
 
-	auto iter = available.find(text_index);
-	bool has_indices = iter != available.end();
+	Node& node = nodes[state_index];
+	// Добавляем в node.terminals индесы всех паттернов, завершающихся по терминальным ссылкам
+	if (!node.terminals_filled)
+		fill_terminals(state_index);
 
-	while (state_index != 0)
+	std::set<size_t>& node_terminals = node.terminals;
+	std::vector<size_t>& available_terminals = available[text_index];
+
+	// Если первый субпаттерн паттерна оканчивается в этой вершине, его в любом случае нужно обработать - 
+	// добавить информацию о том, что можно искать следующий субпаттерн
+	if (node_terminals.find(0) != node_terminals.end())
 	{
-		Node& node = nodes[state_index];
-
-		// Перебираем все субпаттерны, которые оканчиваются в данной вершине
-		for (size_t subpattern_index : node.terminals)
-		{
-			// Если это последний субпаттерн, то надо проверить, завершает ли он цепочку
-			if (subpattern_index == subpatterns_added - 1)
-			{
-				if (has_indices && iter->second.count(subpattern_index))
-					matches.push_back(text_index - match_delta);
-				continue;
-			}
-
-			SubPattern& current_subpattern = subpatterns[subpattern_index];
-			if (text_index - match_delta + pattern_length > text_length)
-				continue;
-
-			// Если это первый субпаттерн паттерна, его в любом случае нужно обработать - 
-			// добавить информацию о том, что можно искать следующий субпаттерн
-			if (subpattern_index == 0
-				|| has_indices && iter->second.count(subpattern_index)) // Иначе нужно убедиться, что это вхождение продолжает цепочку
-				available[text_index + current_subpattern.next_subpattern_end].insert(subpattern_index + 1);
-		}
-		// И продолжаем искать другие совпадения субпаттернов
-		state_index = get_terminal_suffix_link(state_index);
+		available[text_index + subpatterns[0].next_subpattern_end].push_back(1);
 	}
-	if (has_indices)
-		available.erase(iter); // Удаляем устаревшие записи
+
+	// Перебираем все допустимые субпаттерны
+	for (size_t subpattern_index : available_terminals)
+	{
+		if (node_terminals.find(subpattern_index) == node_terminals.end())
+			continue;
+
+		// Если это последний субпаттерн, то он завершает цепочку
+		if (subpattern_index == subpatterns_added - 1)
+		{
+			matches.push_back(text_index - match_delta);
+			continue;
+		}
+
+		SubPattern& current_subpattern = subpatterns[subpattern_index];
+		available[text_index + current_subpattern.next_subpattern_end].push_back(subpattern_index + 1);
+	}
+	available.erase(text_index); // Удаляем устаревшие записи
 }
 
 int main()
@@ -340,42 +358,6 @@ int main()
 	std::string text;
 
 	std::cin >> pattern >> text;
-
-	//pattern = "??";
-	//text = "bbaaaaaaaaaaaaa";
-	// 0 1 2 3 4 5 6 7 8 9 10 11 12 13
-
-	//pattern = "a??";
-	//text = "abcaaaaab";
-	// 0 3 4 5 6 
-
-	//pattern = "?a??";
-	//text = "cabcaaaaab";
-	// 0 3 4 5 6 
-
-	//pattern = "a?aa?aaa??a?aa?";
-	//text = "aaaaaaaaaaaaaaa";
-	// 0
-
-	//pattern = "ab??aba";
-	//text = "ababacaba";
-	// 2
-
-	//pattern = "aa??bab?cbaa?";
-	//text = "aabbbabbcbaabaabbbabbcbaab";
-	// 0 13
-
-	//pattern = "?ab??aba";
-	//text = "ababacaba";
-	// 1
-
-	//pattern = "ba?aab?abab";
-	//text = "aababab";
-	// -
-
-	//pattern = "ba?aab?abab";
-	//text = "ababaabaababb";
-	// 1
 
 	PatternMatcher matcher(pattern);
 
