@@ -10,6 +10,7 @@
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <unordered_map>
 #include <map>
 #include <set>
@@ -103,17 +104,8 @@ void PatternParser::parse_pattern(
 	}
 }
 
-namespace std
-{
-	template <>
-	struct hash<std::pair<char, size_t>>
-	{
-		size_t operator()(const std::pair<char, size_t>& key) const noexcept
-		{
-			return 37 * static_cast<size_t>(key.first) + key.second;
-		}
-	};
-}
+constexpr size_t alphabet_size = 26;
+constexpr char first_letter = 'a';
 
 // Позволяет находить все вхождения паттерна (возможно, содержащего символ "?") в строку с помощью алгоритма Ахо-Корасик
 class PatternMatcher
@@ -122,7 +114,10 @@ public:
 	struct Node
 	{
 		explicit Node(size_t parent, char input_char)
-			: parent(parent), input_char(input_char) {};
+			: parent(parent), input_char(input_char)
+		{
+			transitions = std::vector<long>(alphabet_size, -1);
+		};
 		size_t parent; // Индекс родительского узла
 		char input_char; // Символ, по которому в данный узел можно попасть из родительского
 		long suffix_link = -1; // Суффиксная ссылка
@@ -131,7 +126,7 @@ public:
 
 		// Функция перехода
 		// Сопаставляет символу индекс узла, в который можно попасть либо напрямую, либо по суффиксным ссылкам
-		std::unordered_map<char, size_t> transitions;
+		std::vector<long> transitions;
 	};
 
 	PatternMatcher(const std::string& pattern);
@@ -148,13 +143,13 @@ private:
 	size_t subpatterns_added = 0;
 	size_t pattern_length = 0;
 	size_t leading_questions = 0; // Количество ведущих знаков "?" в паттерне
+	size_t match_delta = 0; // Это число нужно вычесть из позиции конца последнего матча, чтобы получить начало вхождения всего паттерна
 	std::vector<SubPattern> subpatterns; // Оригинальный паттерн в виде вектора субпаттернов
 	std::vector<Node> nodes;
 
-	// Если ключ (позиция_в_тексте, индекс_субпаттерна) находится в chain_starts, то это допустимое продолжение
-	// Значение в этом случае хранит позицию вхождения первого субпаттерна
+	// Если по ключу "позиция_в_тексте" находится "индекс_субпаттерна", то это допустимое продолжение
 	// Любое вхождение первого субпаттерна допустимо и здесь не учитывается
-	std::map<std::pair<size_t, size_t>, size_t> chain_starts;
+	std::unordered_map<size_t, std::unordered_set<size_t>> available;
 
 	void add_subpattern(const std::string_view& subpattern); // Добавляет субпаттерн в бор
 	size_t get_suffix_link(size_t state_index); // Возвращает суффиксную ссылку
@@ -182,6 +177,9 @@ PatternMatcher::PatternMatcher(const std::string& pattern)
 	root.suffix_link = root.terminal_link = 0;
 	nodes.emplace_back(root);
 
+	if (subpatterns.size() > 0)
+		match_delta = pattern_length - subpatterns.back().questions_right - 1;
+
 	for (std::string_view& substr : substrings)
 		add_subpattern(substr);
 }
@@ -193,18 +191,19 @@ void PatternMatcher::add_subpattern(const std::string_view& subpattern)
 	for (char symbol : subpattern)
 	{
 		Node& current_node = nodes[current_node_index];
+		size_t position = symbol - first_letter;
 
 		// Если такого перехода нет, то создадим его вместе с новой вершиной
-		if (current_node.transitions.count(symbol) == 0)
+		if (current_node.transitions[position] == -1)
 		{
 			size_t next_node_index = nodes.size();
 			Node next_node(current_node_index, symbol);
-			current_node.transitions[symbol] = next_node_index;
+			current_node.transitions[position] = next_node_index;
 			nodes.emplace_back(next_node);
 			current_node_index = next_node_index;
 		}
 		else
-			current_node_index = current_node.transitions[symbol];
+			current_node_index = current_node.transitions[position];
 	}
 	nodes[current_node_index].terminals.push_back(subpatterns_added++);
 }
@@ -266,76 +265,60 @@ size_t PatternMatcher::get_terminal_suffix_link(size_t state_index)
 size_t PatternMatcher::transition(size_t state_index, char symbol)
 {
 	Node& node = nodes[state_index];
-	if (node.transitions.count(symbol) == 0)
+	size_t position = symbol - first_letter;
+	if (node.transitions[position] == -1)
 	{
 		if (state_index == 0)
-			node.transitions[symbol] = 0;
+			node.transitions[position] = 0;
 		else
-			node.transitions[symbol] = transition(get_suffix_link(state_index), symbol);
+			node.transitions[position] = transition(get_suffix_link(state_index), symbol);
 	}
-	return node.transitions[symbol];
+	return node.transitions[position];
 }
 
 void PatternMatcher::out(size_t state_index, size_t text_index, size_t text_length, std::vector<size_t>& matches)
 {
-	// Удаляем устаревшие записи в chain_starts
-	if (chain_starts.size() > 0 && chain_starts.begin()->first.first < text_index)
-	{
-		auto end_iter = chain_starts.lower_bound(std::make_pair(text_index, 0));
-		chain_starts.erase(chain_starts.begin(), end_iter);
-	}
-
 	if (nodes[state_index].terminals.size() == 0)
 		state_index = get_terminal_suffix_link(state_index);
+
+	// Если это единственный субпаттерн, то найдено вхождение исходного паттерна
+	if (subpatterns_added == 1 && state_index != 0)
+	{
+		matches.push_back(text_index - match_delta);
+		return;
+	}
+
+	std::unordered_set<size_t>& available_subpatterns = available[text_index];
+
 	while (state_index != 0)
 	{
-		Node& node = nodes[state_index];
-
-		// Если это единственный субпаттерн, то найдено вхождение исходного паттерна
-		if (subpatterns.size() == 1)
+		// Перебираем все субпаттерны, которые оканчиваются в данной вершине
+		for (size_t subpattern_index : nodes[state_index].terminals)
 		{
-			size_t subpattern_start = text_index - subpatterns[0].length + 1;
-			matches.push_back(subpattern_start - leading_questions);
-			return;
-		}
-		// Иначе перебираем все субпаттерны, которые оканчиваются в данной вершине
-		for (size_t subpattern_index : node.terminals)
-		{
-			std::pair<size_t, size_t> current_key = std::make_pair(text_index, subpattern_index);
-
 			// Если это последний субпаттерн, то надо проверить, завершает ли он цепочку
-			if (subpattern_index == subpatterns.size() - 1)
+			if (subpattern_index == subpatterns_added - 1)
 			{
-				if (chain_starts.find(current_key) != chain_starts.end())
-					matches.push_back(chain_starts[current_key]);
+				if (available_subpatterns.count(subpattern_index))
+					matches.push_back(text_index - match_delta);
 				continue;
 			}
 
 			SubPattern& current_subpattern = subpatterns[subpattern_index];
 			SubPattern& next_subpattern = subpatterns[subpattern_index + 1];
 			size_t next_subpattern_end = text_index + current_subpattern.questions_right + next_subpattern.length;
-			if (next_subpattern_end >= text_length)
+			if (text_index - match_delta + pattern_length > text_length)
 				continue;
 
-			std::pair<size_t, size_t> next_key = std::make_pair(next_subpattern_end, subpattern_index + 1);
-
-			// Если это первый субпаттерн паттерна, его в любом случае нужно обработать:
-			// сохранить позицию вхождения в текст + добавить информацию о том, что можно искать следующий субпаттерн
-			if (subpattern_index == 0)
-			{
-				size_t subpattern_length = current_subpattern.length;
-				size_t subpattern_start = text_index - subpattern_length + 1;
-				chain_starts.emplace(std::make_pair(next_key, subpattern_start - leading_questions));
-			}
-			// Иначе нужно убедиться, что это вхождение продолжает цепочку
-			else if (chain_starts.find(current_key) != chain_starts.end())
-			{
-				chain_starts.emplace(std::make_pair(next_key, chain_starts[current_key]));
-			}
+			// Если это первый субпаттерн паттерна, его в любом случае нужно обработать - 
+			// добавить информацию о том, что можно искать следующий субпаттерн
+			if (subpattern_index == 0
+				|| available_subpatterns.count(subpattern_index)) // Иначе нужно убедиться, что это вхождение продолжает цепочку
+				available[next_subpattern_end].insert(subpattern_index + 1);
 		}
 		// И продолжаем искать другие совпадения субпаттернов
 		state_index = get_terminal_suffix_link(state_index);
 	}
+	available.erase(text_index); // Удаляем устаревшие записи
 }
 
 int main()
@@ -354,6 +337,10 @@ int main()
 
 	//pattern = "a??";
 	//text = "abcaaaaab";
+	// 0 3 4 5 6 
+
+	//pattern = "?a??";
+	//text = "cabcaaaaab";
 	// 0 3 4 5 6 
 
 	//pattern = "a?aa?aaa??a?aa?";
