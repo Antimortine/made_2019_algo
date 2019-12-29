@@ -25,6 +25,7 @@ struct SubPattern
 
 	size_t length; // Количество символов в субпаттерне
 	size_t questions_right; // Количество символов "?" справа от субпаттерна в паттерне
+	size_t next_subpattern_end = 0; // Позиция конца следующего субпаттерна относительно текущего
 };
 
 class PatternParser
@@ -102,6 +103,17 @@ void PatternParser::parse_pattern(
 		subpatterns.emplace_back(SubPattern(part.length(), questions_right));
 		++i; // И переходим к следующему субпаттерну
 	}
+
+	size_t total_subpatterns = subpatterns.size();
+	if (total_subpatterns > 1)
+	{
+		for (size_t i = 0; i < total_subpatterns - 1; ++i)
+		{
+			SubPattern& subpattern = subpatterns[i];
+			subpattern.next_subpattern_end = subpattern.questions_right + subpatterns[i + 1].length;
+		}
+	}
+
 }
 
 constexpr size_t alphabet_size = 26;
@@ -149,7 +161,7 @@ private:
 
 	// Если по ключу "позиция_в_тексте" находится "индекс_субпаттерна", то это допустимое продолжение
 	// Любое вхождение первого субпаттерна допустимо и здесь не учитывается
-	std::unordered_map<size_t, std::unordered_set<size_t>> available;
+	std::map<size_t, std::set<size_t>> available;
 
 	void add_subpattern(const std::string_view& subpattern); // Добавляет субпаттерн в бор
 	size_t get_suffix_link(size_t state_index); // Возвращает суффиксную ссылку
@@ -168,11 +180,7 @@ PatternMatcher::PatternMatcher(const std::string& pattern)
 	std::vector<std::string_view> substrings;
 	PatternParser::parse_pattern(pattern, subpatterns, substrings, leading_questions);
 
-	size_t subpatterns_total_length = 0;
-	for (std::string_view& substr : substrings)
-		subpatterns_total_length += substr.length();
-
-	nodes.reserve(subpatterns_total_length + 1);
+	nodes.reserve(pattern_length + 1);
 	Node root(0, 0);
 	root.suffix_link = root.terminal_link = 0;
 	nodes.emplace_back(root);
@@ -288,37 +296,39 @@ void PatternMatcher::out(size_t state_index, size_t text_index, size_t text_leng
 		return;
 	}
 
-	std::unordered_set<size_t>& available_subpatterns = available[text_index];
+	auto iter = available.find(text_index);
+	bool has_indices = iter != available.end();
 
 	while (state_index != 0)
 	{
+		Node& node = nodes[state_index];
+
 		// Перебираем все субпаттерны, которые оканчиваются в данной вершине
-		for (size_t subpattern_index : nodes[state_index].terminals)
+		for (size_t subpattern_index : node.terminals)
 		{
 			// Если это последний субпаттерн, то надо проверить, завершает ли он цепочку
 			if (subpattern_index == subpatterns_added - 1)
 			{
-				if (available_subpatterns.count(subpattern_index))
+				if (has_indices && iter->second.count(subpattern_index))
 					matches.push_back(text_index - match_delta);
 				continue;
 			}
 
 			SubPattern& current_subpattern = subpatterns[subpattern_index];
-			SubPattern& next_subpattern = subpatterns[subpattern_index + 1];
-			size_t next_subpattern_end = text_index + current_subpattern.questions_right + next_subpattern.length;
 			if (text_index - match_delta + pattern_length > text_length)
 				continue;
 
 			// Если это первый субпаттерн паттерна, его в любом случае нужно обработать - 
 			// добавить информацию о том, что можно искать следующий субпаттерн
 			if (subpattern_index == 0
-				|| available_subpatterns.count(subpattern_index)) // Иначе нужно убедиться, что это вхождение продолжает цепочку
-				available[next_subpattern_end].insert(subpattern_index + 1);
+				|| has_indices && iter->second.count(subpattern_index)) // Иначе нужно убедиться, что это вхождение продолжает цепочку
+				available[text_index + current_subpattern.next_subpattern_end].insert(subpattern_index + 1);
 		}
 		// И продолжаем искать другие совпадения субпаттернов
 		state_index = get_terminal_suffix_link(state_index);
 	}
-	available.erase(text_index); // Удаляем устаревшие записи
+	if (has_indices)
+		available.erase(iter); // Удаляем устаревшие записи
 }
 
 int main()
