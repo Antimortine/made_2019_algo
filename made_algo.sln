@@ -35,6 +35,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "made_algo_hw8_task17", "mad
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "made_algo_hw9_task18", "made_algo_hw9_task18\made_algo_hw9_task18.vcxproj", "{9F11EE71-C14A-4FDD-A354-E15BEA8B5895}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "made_algo_hw9_task19", "made_algo_hw9_task19\made_algo_hw9_task19.vcxproj", "{701DC422-FE86-4800-B98E-17F101B62611}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -171,6 +173,14 @@ Global
 		{9F11EE71-C14A-4FDD-A354-E15BEA8B5895}.Release|x64.Build.0 = Release|x64
 		{9F11EE71-C14A-4FDD-A354-E15BEA8B5895}.Release|x86.ActiveCfg = Release|Win32
 		{9F11EE71-C14A-4FDD-A354-E15BEA8B5895}.Release|x86.Build.0 = Release|Win32
+    {701DC422-FE86-4800-B98E-17F101B62611}.Debug|x64.ActiveCfg = Debug|x64
+		{701DC422-FE86-4800-B98E-17F101B62611}.Debug|x64.Build.0 = Debug|x64
+		{701DC422-FE86-4800-B98E-17F101B62611}.Debug|x86.ActiveCfg = Debug|Win32
+		{701DC422-FE86-4800-B98E-17F101B62611}.Debug|x86.Build.0 = Debug|Win32
+		{701DC422-FE86-4800-B98E-17F101B62611}.Release|x64.ActiveCfg = Release|x64
+		{701DC422-FE86-4800-B98E-17F101B62611}.Release|x64.Build.0 = Release|x64
+		{701DC422-FE86-4800-B98E-17F101B62611}.Release|x86.ActiveCfg = Release|Win32
+		{701DC422-FE86-4800-B98E-17F101B62611}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
